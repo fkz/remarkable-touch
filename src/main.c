@@ -46,7 +46,7 @@ void writeSwipe(int fd, int from[2], int to[2]) {
 }
 
 bool moreThanOneTouch(long touchBitmap) {
-  return touchBitmap & (touchBitmap - 1) != 0
+  return touchBitmap & (touchBitmap - 1) != 0;
 }
 
 int main() {
@@ -54,10 +54,9 @@ int main() {
 
   struct input_event event;
 
-  
-  bool touch = false;
+  long filledSlots = 0;
+  int currentSlot = 0;  
   struct timeval initialTouch;
-  struct timeval lastSlotChange = { .tv_sec = 0, .tv_usec = 0 };
 
   int x = 0;
   int y = 0;
@@ -72,43 +71,40 @@ int main() {
   left[0] = 200;
   left[1] = 1024;
 
-  long filledSlots = 0;
-  int currentSlot = 0;
 
   while (true) {
     read(fd, &event, sizeof(event));
     if (event.type != EV_ABS) continue;
     
     if (event.code == ABS_MT_SLOT) {
-      timersub(&event.time, &lastSlotChange, &timeDifference);
-      if (timeDifference.tv_sec >= 2) {
-        printf("blocking because of slot change to %d after having been unblocked for %d seconds\n", event.value, timeDifference.tv_sec);
+      if (event.value > 31) {
+        printf("slot number %d should never happen\n", event.value);
+        currentSlot = event.value;
+        filledSlots |= (1l << currentSlot);
       }
-
-      lastSlotChange = event.time;
     }
 
     if (event.code == ABS_MT_POSITION_X) x = event.value;
     if (event.code == ABS_MT_POSITION_Y) y = event.value;
     if (event.code == ABS_MT_TRACKING_ID) {
-      if (!touch && event.value != -1) {
-        touch = true;
-        initialTouch = event.time;
-      } else if (touch && event.value == -1) {
-        touch = false;
-        timersub(&event.time, &lastSlotChange, &timeDifference);
-        if (timeDifference.tv_sec < 2) continue;
+      if (event.value == -1) {
+        filledSlots &= 0xFFFFFFFF ^ (1l << currentSlot);
+        if (filledSlots == 0) {
+          timersub(&event.time, &initialTouch, &timeDifference);
+          if (timeDifference.tv_sec == 0 && timeDifference.tv_usec < 200000) {
+            int usec = timeDifference.tv_usec;
+            printf("Quick touch at (%d, %d)  [%d usec]\n", x, y, usec);
 
-        timersub(&event.time, &initialTouch, &timeDifference);
-        if (timeDifference.tv_sec == 0 && timeDifference.tv_usec < 200000) {
-          int usec = timeDifference.tv_usec;
-          printf("Quick touch at (%d, %d)  [%d usec]\n", x, y, usec);
-
-          usleep(50000);
-          writeSwipe(fd, right, left);
-        } else {
-          int sec = timeDifference.tv_sec;
-          printf("Long touch at (%d, %d)  [%d sec]\n", x, y, sec);
+            usleep(50000);
+            writeSwipe(fd, right, left);
+          } else {
+            int sec = timeDifference.tv_sec;
+            printf("Long touch at (%d, %d)  [%d sec]\n", x, y, sec);
+          }
+        }
+      } else {
+        if (!moreThanOneTouch(filledSlots)) {
+          initialTouch = event.time;
         }
       }
     }
