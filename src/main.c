@@ -106,10 +106,10 @@ int main() {
             printf("Quick touch at (%d, %d) [diff: %d] [%d usec]\n", x, y, diff, usec);
 
             if (diff < 8) {
-              if (x > 1000 && y < 400) {
+              if (x > 1000 && y < 400 && y >= 0) {
                 usleep(50000);
                 writeSwipe(fd, right, left);
-              } else if (x < 400 && y < 400) {
+              } else if (x < 400 && x >= 0 && y < 400 && y >= 0) {
                 usleep(50000);
                 writeSwipe(fd, left, right);
               }
