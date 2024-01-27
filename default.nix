@@ -1,13 +1,15 @@
-{ stdenv, fetchurl, bash, python3, which }:
+{ stdenv, fetchurl, bash, python3, which, writeScript }:
 
 let toolchain = 
-    stdenv.mkDerivation {
+    stdenv.mkDerivation (self: {
       pname = "cortex-toolchain";
-      version = "3.1.15";
+      version = "4.0.117";
 
       src = fetchurl {
-        url = "https://storage.googleapis.com/remarkable-codex-toolchain/codex-x86_64-cortexa7hf-neon-rm11x-toolchain-3.1.15.sh";
-        sha256 = "07s1cqz1knj0kvbxa67fmzl13p7dl3dipn8ai67pkdpbkd7mp6hs";
+        url = "https://storage.googleapis.com/remarkable-codex-toolchain/remarkable-platform-image-${self.version}-rm2-public-x86_64-toolchain.sh";
+        #sha256 = "29779c80db2a025126d52faad88d553cadda09fff31fb4138a9df1d5b7e8a247";
+        hash = "sha256-WfJKWAZznJJI2/WQTwQCh/GMvPUcj783HIA301uuYmg=";
+        executable = true;
       };
 
       nativeBuildInputs = [ bash python3 which ];
@@ -15,19 +17,21 @@ let toolchain =
       dontUnpack = true;
 
       buildPhase = ''
-        bash $src -d $out
+        $src -d $out
       '';
-    }; in
-stdenv.mkDerivation {
-  pname = "touch-page";
-  version = "0.0.1";
+    }); in
+derivation {
+  name = "touch-page-0.1.0";
+
+  system = "x86_64-linux";
+  
+  builder = writeScript "builder" ''
+    #!${bash}/bin/bash
+
+    source ${toolchain}/environment-setup-cortexa7hf-neon-remarkable-linux-gnueabi
+    $CC $src/main.c -o $out
+  '';
 
   src = ./src;
 
-  buildPhase = ''
-    source ${toolchain}/environment-setup-cortexa7hf-neon-remarkable-linux-gnueabi
-
-    $CC main.c -o $out
-    chmod +x $out
-  '';
 }
