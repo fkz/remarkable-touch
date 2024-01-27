@@ -1,11 +1,4 @@
-{ 
-  nixpkgs ? import <nixpkgs> {}, 
-  stdenv ? nixpkgs.stdenv, 
-  fetchurl ? nixpkgs.fetchurl, 
-  bash ? nixpkgs.bash, 
-  python3 ? nixpkgs.python3, 
-  which ? nixpkgs.which 
-}:
+{ stdenv, fetchurl, bash, python3, which }:
 
 let toolchain = 
     stdenv.mkDerivation {
@@ -26,7 +19,8 @@ let toolchain =
       '';
     }; in
 stdenv.mkDerivation {
-  name = "test-program";
+  pname = "touch-page";
+  version = "0.0.1";
 
   src = ./src;
 
