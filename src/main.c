@@ -58,8 +58,9 @@ int main() {
   int currentSlot = 0;  
   struct timeval initialTouch;
 
-  int x = 0;
-  int y = 0;
+  int x = -1;
+  int y = -1;
+  int diff = 0;
 
   struct timeval timeDifference;
 
@@ -79,13 +80,22 @@ int main() {
     if (event.code == ABS_MT_SLOT) {
       if (event.value > 31) {
         printf("slot number %d should never happen\n", event.value);
-        currentSlot = event.value;
-        filledSlots |= (1l << currentSlot);
       }
+      currentSlot = event.value;
+      filledSlots |= (1l << currentSlot);
     }
 
-    if (event.code == ABS_MT_POSITION_X) x = event.value;
-    if (event.code == ABS_MT_POSITION_Y) y = event.value;
+    if (event.code == ABS_MT_POSITION_X) {
+      if (x == -1) x = event.value;
+      int d = abs(event.value - x);
+      if (d > diff) diff = d;
+    }
+    if (event.code == ABS_MT_POSITION_Y) {
+      if (y == -1) y = event.value;
+      int d = abs(event.value - y);
+      if (d > diff) diff = d;
+    }
+
     if (event.code == ABS_MT_TRACKING_ID) {
       if (event.value == -1) {
         filledSlots &= 0xFFFFFFFF ^ (1l << currentSlot);
@@ -93,14 +103,22 @@ int main() {
           timersub(&event.time, &initialTouch, &timeDifference);
           if (timeDifference.tv_sec == 0 && timeDifference.tv_usec < 200000) {
             int usec = timeDifference.tv_usec;
-            printf("Quick touch at (%d, %d)  [%d usec]\n", x, y, usec);
+            printf("Quick touch at (%d, %d) [diff: %d] [%d usec]\n", x, y, diff, usec);
 
-            usleep(50000);
-            writeSwipe(fd, right, left);
+            if (diff < 8) {
+              if (x > 1000 && y < 400) {
+                usleep(50000);
+                writeSwipe(fd, right, left);
+              } else if (x < 400 && y < 400) {
+                usleep(50000);
+                writeSwipe(fd, left, right);
+              }
+            }
           } else {
             int sec = timeDifference.tv_sec;
-            printf("Long touch at (%d, %d)  [%d sec]\n", x, y, sec);
+            printf("Long touch at (%d, %d) [diff: %d] [%d sec]\n", x, y, diff, sec);
           }
+          x = -1; y = -1; diff = 0;
         }
       } else {
         if (!moreThanOneTouch(filledSlots)) {
