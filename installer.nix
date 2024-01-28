@@ -2,5 +2,8 @@
 
 writeScriptBin "install-remarkable-tools" ''
   #!${nodejs}/bin/node
-  require("${./installer/install.js}")
+  const tools = {
+    flip: "${flip}"
+  };
+  require("${./installer/install.js}")(tools);
 ''
