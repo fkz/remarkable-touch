@@ -12,5 +12,5 @@ derivation {
     $CC $src/main.c -o $out
   '';
 
-  src = ./src;
+  src = ./flip;
 }
