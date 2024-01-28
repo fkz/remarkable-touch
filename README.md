@@ -2,6 +2,8 @@
 
 Small programs to make changes to the Remarkable2 device.
 
+I tested this on a Remarkable2 device with software version 3.9.3.1986.
+
 Currently, 2 programs are available:
 ## flip
  
