@@ -5,6 +5,10 @@
 
   outputs = { self, nixpkgs }: let pkgs = nixpkgs.legacyPackages.x86_64-linux; in {
 
-    packages.x86_64-linux.default = pkgs.callPackage ./. {};
+    packages.x86_64-linux = rec {
+      flip = pkgs.callPackage ./. { inherit toolchain; };
+      default = flip;
+      toolchain = pkgs.callPackage ./toolchain.nix {};
+    };
   };
 }
