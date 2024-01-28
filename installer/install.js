@@ -124,7 +124,13 @@ module.exports = async (programs) => {
       return;
     }
 
-    await executeProgram(args[0]);
+    try {
+      await executeProgram(args[0]);
+    } catch (e) {
+      console.log("An error occured while executing program: ", e);
+      process.exitCode = 1;
+      return;
+    }
     return;
   }
 

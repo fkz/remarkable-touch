@@ -7,8 +7,9 @@
 
     packages.x86_64-linux = rec {
       flip = pkgs.callPackage ./flip.nix { inherit toolchain; };
+      web-interface = pkgs.callPackage ./web-interface.nix {};
       toolchain = pkgs.callPackage ./toolchain.nix {};
-      installer = pkgs.callPackage ./installer.nix { inherit flip; };
+      installer = pkgs.callPackage ./installer.nix { inherit flip web-interface; };
       default = installer;
     };
   };
