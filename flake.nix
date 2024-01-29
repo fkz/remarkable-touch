@@ -18,7 +18,7 @@
         web-interface = crossPkgs.callPackage ./web-interface.nix {};
         printer = crossPkgs.callPackage ./printer.nix {};
         
-        installer = pkgs.callPackage ./installer.nix { inherit flip web-interface; };
+        installer = pkgs.callPackage ./installer.nix { inherit flip web-interface printer; };
         default = installer;
 
         toolchain = pkgs.callPackage ./toolchain.nix {};
