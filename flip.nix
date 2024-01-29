@@ -1,16 +1,12 @@
-{ stdenv, writeScript, toolchain }:
+{ stdenv }:
 
-derivation {
-  name = "touch-page-0.1.0";
-
-  system = "x86_64-linux";
-  
-  builder = writeScript "builder" ''
-    #!${stdenv.shell}
-
-    source ${toolchain}/environment-setup-cortexa7hf-neon-remarkable-linux-gnueabi
-    $CC $src/main.c -o $out
-  '';
+stdenv.mkDerivation {
+  pname = "touch-page";
+  version = "0.1.0";
 
   src = ./flip;
+
+  buildPhase = ''
+    $CC main.c -o $out  
+  '';
 }
