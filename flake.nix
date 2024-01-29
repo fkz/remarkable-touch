@@ -16,10 +16,12 @@
       packages = rec {
         flip = crossPkgs.callPackage ./flip.nix {};
         web-interface = crossPkgs.callPackage ./web-interface.nix {};
-        toolchain = pkgs.callPackage ./toolchain.nix {};
-        installer = pkgs.callPackage ./installer.nix { inherit flip web-interface; };
         printer = crossPkgs.callPackage ./printer.nix {};
+        
+        installer = pkgs.callPackage ./installer.nix { inherit flip web-interface; };
         default = installer;
+
+        toolchain = pkgs.callPackage ./toolchain.nix {};
       };
   });
 }
