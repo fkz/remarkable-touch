@@ -7,6 +7,10 @@ stdenv.mkDerivation {
   src = ./flip;
 
   buildPhase = ''
-    $CC main.c -o $out  
+    $CC main.c -o $out
+  '';
+
+  fixupPhase = ''
+    patchelf --set-interpreter /lib/ld-linux-armhf.so.3 $out
   '';
 }
