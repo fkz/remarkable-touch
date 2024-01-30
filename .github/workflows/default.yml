@@ -12,4 +12,4 @@ jobs:
       with:
         name: potsdam-pnp
         authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-    - run nix build .#ippsample
+    - run: nix build .#ippsample
