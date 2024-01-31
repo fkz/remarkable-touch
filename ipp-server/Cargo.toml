@@ -1,0 +1,12 @@
+[package]
+name = "remarkable-ipp"
+version = "0.0.1"
+edition = "2021"
+description = "Make the Remarkable into a printer server"
+
+
+[dependencies]
+hyper = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["full"] }

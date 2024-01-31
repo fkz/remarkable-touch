@@ -1,12 +1,7 @@
-{ writeScriptBin, nodejs, flip, web-interface, printer, ippserver }:
+{ writeScriptBin, nodejs, programs }:
 
 writeScriptBin "install-remarkable-tools" ''
   #!${nodejs}/bin/node
-  const tools = {
-    flip: "${flip}",
-    "web-interface": "${web-interface}",
-    printer: "${printer}/bin/${printer.pname}",
-    ippserver: "${ippserver}"
-  };
+  const tools = { ${builtins.concatStringsSep ", " (map (name: ''"${name}": "${programs.${name}}"'') (builtins.attrNames programs)) } };
   require("${./installer/install.js}")(tools);
 ''

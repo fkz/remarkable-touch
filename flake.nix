@@ -19,8 +19,9 @@
         web-interface = crossPkgs.callPackage ./web-interface.nix {};
         printer = crossPkgs.callPackage ./printer.nix {};
         ipp-server = crossPkgs.callPackage ./ipp-server.nix {};
+        ipp-server-test = pkgs.callPackage ./ipp-server.nix {};
         
-        installer = pkgs.callPackage ./installer.nix { inherit flip web-interface printer ipp-server; };
+        installer = pkgs.callPackage ./installer.nix { programs = { inherit flip web-interface printer ipp-server; }; };
         default = installer;
 
         toolchain = pkgs.callPackage ./toolchain.nix {};
