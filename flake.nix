@@ -18,14 +18,9 @@
         flip = crossPkgs.callPackage ./flip.nix {};
         web-interface = crossPkgs.callPackage ./web-interface.nix {};
         printer = crossPkgs.callPackage ./printer.nix {};
-        ippserver = let replaceHead = drv:
-          pkgs.runCommand "${drv.name}" { nativeBuildInputs = [ pkgs.gnused ]; srcFile = "${drv}"; } ''
-            sed 's/head -c /dd bs=1 count=/g' $srcFile > $out
-            chmod +x $out
-          ''; in #replaceHead(bundlers.defaultBundler.${system} 
-          (crossPkgs.pkgsStatic.callPackage ./ippserver.nix {});
+        ipp-server = crossPkgs.callPackage ./ipp-server.nix {};
         
-        installer = pkgs.callPackage ./installer.nix { inherit flip web-interface printer ippserver; };
+        installer = pkgs.callPackage ./installer.nix { inherit flip web-interface printer ipp-server; };
         default = installer;
 
         toolchain = pkgs.callPackage ./toolchain.nix {};

@@ -1,13 +1,30 @@
-{ stdenv, fetchFromGitHub, zlib, avahi, pkg-config, gnutls, which, nix-bundle }:
+{ stdenv, fetchFromGitHub, zlib, avahi, pkg-config, gnutls, which, nix-bundle, lib, perlPackages, cups }:
 
-let ippsample = stdenv.mkDerivation (self: with self; {
+let 
+  avahiOverride = (avahi.override { inherit perlPackages; }).overrideAttrs {
+    preConfigure = ''
+      sed -i 's/if test x"$acx_pthread_ok" = xyes; then/if test x"$acx_pthread_ok" = xno; then/' configure 
+    '';
+
+    makeFlags = [ "AM_LDADD=-zmuldefs" ];
+
+   };
+  cupsOverride = ((cups.override) { avahi = avahiOverride; }).overrideAttrs (prev: {
+    configureFlags = let x = prev.configureFlags ++ [ "--with-components=libcups" ]; in builtins.trace x x;
+  });
+
+ippsample = stdenv.mkDerivation (self: with self; {
   pname = "ippsample";
   version = "2023.09";
 
   nativeBuildInputs = [ pkg-config which ];
 
-  buildInputs = [ zlib avahi gnutls ];
 
+  buildInputs = [ zlib gnutls cupsOverride avahiOverride ]; 
+  #(avahi.overrideAttrs (self: {
+  #  propagatedBuildInputs = builtins.filter (x: !(lib.strings.hasPrefix "perl" x.name )) self.propagatedBuildInputs;
+  #}))];
+  
   src = fetchFromGitHub {
     owner = "istopwg";
     repo = pname;
@@ -22,7 +39,9 @@ let ippsample = stdenv.mkDerivation (self: with self; {
     sed -i s/pkg-config/$PKG_CONFIG/ Makedefs.in
   '';
 
-  configureFlags = [ "--enable-static" ];
+  #configureFlags = [ "--help" ];
+
+  makeFlags = [ "IPPTOOLS=ippfind" ];
 
   # do a 
   # postBuild = ''
