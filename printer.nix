@@ -12,4 +12,8 @@ buildGoModule rec {
   };
 
   vendorHash = "sha256-PfJNr7t/27PSnwIwFv0kHV3f+er0fpHwqddS8yS7ofo=";
+
+  fixupPhase = ''
+    patchelf --set-interpreter /lib/ld-linux-armhf.so.3 $out/bin/remarkable_printer
+  '';
 }
