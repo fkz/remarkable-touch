@@ -7,4 +7,6 @@ rustPlatform.buildRustPackage {
   src = ./ipp-server;
 
   cargoHash = "sha256-d+QfKJaxZh62GnvBtXp+a7p+urW18DU37f7qLWkTeIY=";
+
+  MY_rustLibSource = rustPlatform.rustLibSrc;
 }
