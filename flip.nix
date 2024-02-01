@@ -13,8 +13,4 @@ stdenv.mkDerivation {
   fixupPhase = ''
     patchelf --set-interpreter /lib/ld-linux-armhf.so.3 $out
   '';
-
-  fixupPhase = ''
-    patchelf --set-interpreter /lib/ld-linux-armhf.so.3 $out
-  '';
 }
