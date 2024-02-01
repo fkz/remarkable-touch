@@ -414,6 +414,7 @@ dependencies = [
 name = "remarkable-ipp"
 version = "0.0.1"
 dependencies = [
+ "bytes",
  "http-body-util",
  "hyper",
  "hyper-util",

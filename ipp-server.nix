@@ -6,7 +6,7 @@ rustPlatform.buildRustPackage {
 
   src = ./ipp-server;
 
-  cargoHash = "sha256-d+QfKJaxZh62GnvBtXp+a7p+urW18DU37f7qLWkTeIY=";
+  cargoHash = "sha256-10YsNA31NzcfKkPhAt3jhmhsKuDbHoyriFZhMD5wKHE=";
 
   bin = "bin/remarkable-ipp";
 
