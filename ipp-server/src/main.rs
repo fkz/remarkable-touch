@@ -1,5 +1,8 @@
 use std::convert::Infallible;
+//use std::io::Write;
+//use tokio::io::AsyncWriteExt;
 use std::net::SocketAddr;
+use std::fs::File;
 
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Buf, Bytes};
@@ -9,9 +12,17 @@ use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
-#[derive(std::fmt::Debug)]
+use std::io::Write;
 
-struct IppMessage;
+
+
+#[derive(Debug)]
+struct IppMessage {
+    operation_id: u16,
+    request_id: u32,
+}
+
+
 
 trait Binary {
     fn from_buf(buf: &mut impl Buf) -> Option<Self> where Self: Sized;
@@ -28,6 +39,7 @@ enum DelimiterTag {
 #[derive(Debug)] 
 #[derive(PartialEq)]
 enum ValueTag {
+    JobAttributes = 0x02,
     EndOfAttributes = 0x03,
     Integer = 0x21,
     Boolean = 0x22,
@@ -67,6 +79,7 @@ impl Binary for ValueTag {
     fn from_buf(buf: &mut impl Buf) -> Option<Self> {
         let tag = buf.get_u8();
         match tag {
+            0x02 => Some(ValueTag::JobAttributes),
             0x03 => Some(ValueTag::EndOfAttributes),
             0x21 => Some(ValueTag::Integer),
             0x22 => Some(ValueTag::Boolean),
@@ -101,15 +114,23 @@ fn parse(b: &mut impl Buf) -> Option<IppMessage> {
     let operation_id = b.get_u16();
     let request_id = b.get_u32();
     
-    parseAttributeGroups(b);
+    let _ipp_message = parseAttributeGroups(b);
 
     let data_size = b.remaining();
     println!("Data size: {}", data_size);
-    //parseData(&mut b);
 
     println!("OperationId: {}", operation_id);
     println!("RequestId: {}", request_id);
-    Some(IppMessage)
+    
+    if data_size > 0 {
+        let mut file = File::create("foo.txt").unwrap();
+        file.write(&b.copy_to_bytes(data_size)).unwrap();
+    }
+    
+    Some(IppMessage {
+        operation_id,
+        request_id,
+    })
 }
 
 fn parseAttributeGroups(b: &mut impl Buf) {
@@ -145,8 +166,12 @@ fn parseAttributeGroups(b: &mut impl Buf) {
 fn parseAttributes(b: &mut impl Buf) {
     loop {
         let tag = ValueTag::from_buf(b);
-        if (tag == Some(ValueTag::EndOfAttributes)) {
+        if tag == Some(ValueTag::EndOfAttributes) {
             break;
+        }
+        if tag == Some(ValueTag::JobAttributes) {
+            println!("JobAttributes");
+            continue;
         }
         let name_length = b.get_u16();
         let name = b.copy_to_bytes(name_length as usize);
@@ -154,6 +179,63 @@ fn parseAttributes(b: &mut impl Buf) {
         let value = b.copy_to_bytes(value_length as usize);
         println!("Tag: {:?}, Name: {}, Value: {}", tag, String::from_utf8_lossy(&name), String::from_utf8_lossy(&value));
     }
+}
+
+fn sendAttribute(tpe: ValueTag, name: &str, value: &str, buf: &mut Vec<u8>) {
+    buf.push(tpe as u8);
+
+    let name = name.as_bytes();
+    let value = value.as_bytes();
+
+    let name_length = name.len() as u16;
+    let value_length = value.len() as u16;
+
+    buf.extend_from_slice(&name_length.to_be_bytes());
+    buf.extend_from_slice(name);
+    buf.extend_from_slice(&value_length.to_be_bytes());
+    buf.extend_from_slice(value);
+}
+
+fn send_document_type(buf: &mut Vec<u8>) {
+    //buf.push(DelimiterTag::OperationAttributes as u8);
+
+    //sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
+    // sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
+    
+    buf.push(DelimiterTag::PrinterAttributes as u8);
+    sendAttribute(ValueTag::MimeMediaType, "document-format-supported", "application/pdf", buf);
+    sendAttribute(ValueTag::MimeMediaType, "document-format-default", "application/pdf", buf);
+    // sendAttribute(ValueTag::Keyword, "compression-supported", "none", buf);
+    // sendAttribute(ValueTag::Boolean, "printer-is-accepting-jobs", "\x01", buf);
+    // sendAttribute(ValueTag::Enum, "printer-state", "\x00\x00\x00\x03", buf);
+    // sendAttribute(ValueTag::Keyword, "printer-state-reasons", "none", buf);
+    
+    sendAttribute(ValueTag::Uri, "printer-uri-supported", "ipp://192.168.0.10/remarkable-printer", buf);
+    sendAttribute(ValueTag::NameWithoutLanguage, "printer-name", "remarkable-test-printer", buf);
+    sendAttribute(ValueTag::Keyword, "uri-authentication-supported", "none", buf);
+    sendAttribute(ValueTag::Keyword, "uri-security-supported", "none", buf);
+    
+    // sendAttribute(ValueTag::Enum, "operations-supported", "\x00\x00\x00\x02", buf);
+    // sendAttribute(ValueTag::Enum, "", "\x00\x00\x00\x04", buf);
+    
+    
+}
+
+fn response(status_code: u16, request_id: u32) -> Vec<u8> {
+    let mut buf: Vec<u8> = Vec::new();
+
+    buf.push(0x02);
+    buf.push(0x00);
+    buf.extend_from_slice(&status_code.to_be_bytes());
+    buf.extend_from_slice(&request_id.to_be_bytes());
+
+    buf.push(DelimiterTag::OperationAttributes as u8);
+
+    send_document_type(&mut buf);
+
+    buf.push(DelimiterTag::EndOfAttributes as u8);
+
+    buf
 }
 
 
@@ -167,13 +249,16 @@ async fn hello(request: Request<hyper::body::Incoming>) -> Result<Response<Full<
 
     println!("{:#?}", message);
 
-    Ok(Response::new(Full::new(Bytes::from("Hello, Worl2d!"))))
+    let r = response(0, message.request_id);
+    println!("Success");
+    Ok(Response::new(Full::new(Bytes::from(r))))
+
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Hello, world!");
-    let addr = SocketAddr::from(([127, 0, 0, 1], 631));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 631));
 
     // We create a TcpListener and bind it to 127.0.0.1:631
     let listener = TcpListener::bind(addr).await?;

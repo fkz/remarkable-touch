@@ -8,5 +8,9 @@ rustPlatform.buildRustPackage {
 
   cargoHash = "sha256-d+QfKJaxZh62GnvBtXp+a7p+urW18DU37f7qLWkTeIY=";
 
-  MY_rustLibSource = rustPlatform.rustLibSrc;
+  bin = "bin/remarkable-ipp";
+
+  fixupPhase = ''
+    patchelf --set-interpreter /lib/ld-linux-armhf.so.3 $out/$bin
+  '';
 }
