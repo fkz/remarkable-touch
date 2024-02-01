@@ -14,7 +14,13 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
+use std::process::Command;
+
+
 use std::io::Write;
+use uuid::Uuid;
+
+use std::time::{SystemTime, UNIX_EPOCH};
 
 
 #[derive(Debug)]
@@ -163,8 +169,7 @@ fn parse(b: &mut impl Buf) -> Option<IppIncomingMessage> {
     println!("Data size: {}", data_size);
     
     if data_size > 0 {
-        let mut file = File::create("foo.txt").unwrap();
-        file.write(&b.copy_to_bytes(data_size)).unwrap();
+        store_pdf(b.copy_to_bytes(data_size));
     }
     
     Some(IppIncomingMessage {
@@ -237,11 +242,12 @@ fn sendAttribute(tpe: ValueTag, name: &str, value: &str, buf: &mut BytesMut) {
 }
 
 fn send_document_type(buf: &mut BytesMut) {
-    buf.put_u8(DelimiterTag::PrinterAttributes as u8);
+    buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
     sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
     sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
-    
+
+    buf.put_u8(DelimiterTag::PrinterAttributes as u8);    
     sendAttribute(ValueTag::MimeMediaType, "document-format-supported", "application/pdf", buf);
     sendAttribute(ValueTag::MimeMediaType, "", "application/postscript", buf);
 
@@ -260,14 +266,67 @@ fn send_document_type(buf: &mut BytesMut) {
     
     sendAttribute(ValueTag::Enum, "operations-supported", "\x00\x00\x00\x02", buf);
     sendAttribute(ValueTag::Enum, "", "\x00\x00\x00\x04", buf);
+    sendAttribute(ValueTag::Enum, "", "\x00\x00\x00\x0a", buf);
+    sendAttribute(ValueTag::Enum, "", "\x00\x00\x00\x0b", buf);
+    
 }
 
+fn metadataTemplate(visibleName: &str) -> String {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH).unwrap();
+    let seconds = since_the_epoch.as_secs();
+
+    format!("{{
+        \"deleted\": false,
+        \"lastModified\": \"{seconds}\",
+        \"lastOpened\": \"0\",
+        \"lastOpenedPage\": 0,
+        \"metadatamodified\": true,
+        \"modified\": true,
+        \"parent\": \"\",
+        \"pinned\": false,
+        \"synced\": false,
+        \"type\": \"DocumentType\",
+        \"version\": 0,
+        \"visibleName\": \"{visibleName}\"
+    }}")
+}
+
+const contentTemplate: &str = "{
+    \"fileType\": \"pdf\"  
+}";
+
+fn store_pdf(bytes: Bytes) {
+    let base_path = "/home/root/.local/share/remarkable/xochitl/";
+    let uuid = Uuid::new_v4();
+    let uuid = uuid.as_hyphenated();
+    let path = format!("{base_path}{uuid}.pdf");
+    let mut file = File::create(path).unwrap();
+    file.write_all(&bytes).unwrap();
+
+    let metadata = metadataTemplate("PRINTED_FILE");
+    let path = format!("{base_path}{uuid}.metadata");
+    let mut file = File::create(path).unwrap();
+    file.write_all(metadata.as_bytes()).unwrap();
+
+    let path = format!("{base_path}{uuid}.content");
+    let mut file = File::create(path).unwrap();
+    file.write_all(contentTemplate.as_bytes()).unwrap();
+
+    Command::new("systemctl")
+        .args(["restart", "xochitl"])
+        .output().unwrap();
+}
 
 fn print_job(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
     let job_id = {
         let mut jobs = state.lock().unwrap();
-        let new_id = jobs.len() + 5;
+        let new_id = jobs.len() + 15;
         jobs.push(new_id as u32);
+        
+        println!("New Jobs: {:?}", jobs);
+
         new_id as u32
     };
 
@@ -279,6 +338,13 @@ fn print_job(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
     write_job(job_id, buf);
 }
 
+fn validate_job(buf: &mut BytesMut) {
+    buf.put_u8(DelimiterTag::OperationAttributes as u8);
+    
+    sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
+    sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
+}
+
 
 
 fn send_jobs(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
@@ -286,14 +352,26 @@ fn send_jobs(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
 
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
-    sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
-    sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
 
     println!("Jobs: {:?}", &jobs);
 
-
     for job in jobs {
         write_job(job, buf);
+    }
+}
+
+fn send_job(buf: &mut BytesMut, job_id: u32, state: Arc<Mutex<Vec<u32>>>) {
+    let jobs = state.lock().unwrap().clone();
+
+    buf.put_u8(DelimiterTag::OperationAttributes as u8);
+    
+
+    println!("Jobs: {:?}", &jobs);
+
+    for job in jobs {
+        if job == job_id {
+            write_job(job, buf);
+        }
     }
 }
 
@@ -304,14 +382,22 @@ fn write_job(job_id: u32, buf: &mut BytesMut) {
     job_uri.push_str(job_id.to_string().as_str());
 
     buf.put_u8(DelimiterTag::JobAttributes as u8);
+    sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
+    sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
     sendAttribute(ValueTag::Integer, "job-id", job_id.as_str(), buf);
+    
     sendAttribute(ValueTag::Uri, "job-uri", job_uri.as_str(), buf);
-    sendAttribute(ValueTag::Keyword, "job-state", "completed", buf);
+    
+
+    sendAttribute(ValueTag::Enum, "job-state", "\x00\x00\x00\x09", buf);
     sendAttribute(ValueTag::Keyword, "job-state-reasons", "job-completed-successfully", buf);
+    sendAttribute(ValueTag::NameWithoutLanguage, "job-name", "com.google.android.apps.photos.Image", buf);
+    sendAttribute(ValueTag::Uri, "printer-uri", "ipp://192.168.0.10/remarkable-printer", buf);
+    
                 
 }
 
-fn response(status_code: u16, request_id: u32, request_type: u16, state: Arc<Mutex<Vec<u32>>>) -> Bytes {
+fn response(status_code: u16, request_id: u32, request_type: u16, job_id: u32, state: Arc<Mutex<Vec<u32>>>) -> Bytes {
     let mut buf: BytesMut = BytesMut::new();
 
     buf.put_u8(0x01);
@@ -319,14 +405,18 @@ fn response(status_code: u16, request_id: u32, request_type: u16, state: Arc<Mut
     buf.put_u16(status_code);
     buf.put_u32(request_id);
 
-    buf.put_u8(DelimiterTag::OperationAttributes as u8);
-
     if request_type == 10 {
         send_jobs(&mut buf, state);
     } else if request_type == 2 {
         print_job(&mut buf, state);
-    } else {
+    } else if request_type == 11 {
         send_document_type(&mut buf);
+    } else if request_type == 4 {
+        validate_job(&mut buf);
+    } else if request_type == 9 {
+        send_job(&mut buf, job_id, state)
+    } else {
+        panic!("Unknown request type: {}", request_type)
     }
 
     buf.put_u8(DelimiterTag::EndOfAttributes as u8);
@@ -354,10 +444,17 @@ async fn reply(state: Arc<Mutex<Vec<u32>>>, request: Request<hyper::body::Incomi
 
     let message = parse(&mut a).unwrap();
 
-    println!("{:#?}", message);
+    let job_id = message.attributes.iter().find(|a| a.name == "job-id").map(|a| match &a.value {
+        AttributeValue::Other(ValueTag::Integer, b) => {
+            b.clone().get_u32()
+        },
+        _ => 0
+    }).unwrap_or(0);
 
-    let r = response(0, message.request_id, message.operation_id, state);
-    println!("Success");
+    println!("{:#?} {}", message, job_id);
+
+    let r = response(0, message.request_id, message.operation_id, job_id, state);
+    println!("Success: {:?}", r.to_vec());
     Ok(Response::new(Full::new(r)))
 }
 
