@@ -1,6 +1,4 @@
 use std::convert::Infallible;
-//use std::io::Write;
-//use tokio::io::AsyncWriteExt;
 use std::net::SocketAddr;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
@@ -8,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
-use hyper::service::{Service, service_fn};
+use hyper::service::Service;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
@@ -22,12 +20,6 @@ use uuid::Uuid;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-
-#[derive(Debug)]
-struct IppMessage {
-    operation_id: u16,
-    request_id: u32,
-}
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
@@ -281,11 +273,11 @@ fn metadataTemplate(visibleName: &str) -> String {
     let start = SystemTime::now();
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH).unwrap();
-    let seconds = since_the_epoch.as_secs();
+    let milliseconds = since_the_epoch.as_millis();
 
     format!("{{
         \"deleted\": false,
-        \"lastModified\": \"{seconds}\",
+        \"lastModified\": \"{milliseconds}\",
         \"lastOpened\": \"0\",
         \"lastOpenedPage\": 0,
         \"metadatamodified\": true,
