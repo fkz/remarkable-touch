@@ -3,10 +3,12 @@ use std::convert::Infallible;
 //use tokio::io::AsyncWriteExt;
 use std::net::SocketAddr;
 use std::fs::File;
+use std::sync::{Arc, Mutex};
+
 
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
-use hyper::service::service_fn;
+use hyper::service::{Service, service_fn};
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
@@ -261,33 +263,55 @@ fn send_document_type(buf: &mut BytesMut) {
 }
 
 
-fn send_jobs(buf: &mut BytesMut) {
+fn print_job(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
+    let job_id = {
+        let mut jobs = state.lock().unwrap();
+        let new_id = jobs.len() + 5;
+        jobs.push(new_id as u32);
+        new_id as u32
+    };
+
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
     sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
     sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
 
-    buf.put_u8(DelimiterTag::JobAttributes as u8);
-    sendAttribute(ValueTag::Integer, "job-id", "\x00\x00\x00\x61", buf);
-    sendAttribute(ValueTag::Uri, "job-uri", "ipp://192.168.0.10/remarkable-printer/jobs/97", buf);
-    sendAttribute(ValueTag::Keyword, "job-state", "completed", buf);
-    sendAttribute(ValueTag::Keyword, "job-state-reasons", "job-completed-successfully", buf);
+    write_job(job_id, buf);
 }
 
-fn print_job(buf: &mut BytesMut) {
+
+
+fn send_jobs(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
+    let jobs = state.lock().unwrap().clone();
+
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
     sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
     sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
 
-    buf.put_u8(DelimiterTag::JobAttributes as u8);
-    sendAttribute(ValueTag::Integer, "job-id", "\x00\x00\x00\x61", buf);
-    sendAttribute(ValueTag::Uri, "job-uri", "ipp://192.168.0.10/remarkable-printer/jobs/97", buf);
-    sendAttribute(ValueTag::Keyword, "job-state", "completed", buf);
-    sendAttribute(ValueTag::Keyword, "job-state-reasons", "job-completed-successfully", buf);
+    println!("Jobs: {:?}", &jobs);
+
+
+    for job in jobs {
+        write_job(job, buf);
+    }
 }
 
-fn response(status_code: u16, request_id: u32, request_type: u16) -> Bytes {
+fn write_job(job_id: u32, buf: &mut BytesMut) {
+    let job_bytes: [u8; 4] = job_id.to_be_bytes();
+    let job_id = String::from(String::from_utf8_lossy(&job_bytes)); // TODO: This is wrong for octets higher than 128
+    let mut job_uri = "ipp://192.168.0.10/remarkable-printer/jobs/".to_string();
+    job_uri.push_str(job_id.to_string().as_str());
+
+    buf.put_u8(DelimiterTag::JobAttributes as u8);
+    sendAttribute(ValueTag::Integer, "job-id", job_id.as_str(), buf);
+    sendAttribute(ValueTag::Uri, "job-uri", job_uri.as_str(), buf);
+    sendAttribute(ValueTag::Keyword, "job-state", "completed", buf);
+    sendAttribute(ValueTag::Keyword, "job-state-reasons", "job-completed-successfully", buf);
+                
+}
+
+fn response(status_code: u16, request_id: u32, request_type: u16, state: Arc<Mutex<Vec<u32>>>) -> Bytes {
     let mut buf: BytesMut = BytesMut::new();
 
     buf.put_u8(0x01);
@@ -298,9 +322,9 @@ fn response(status_code: u16, request_id: u32, request_type: u16) -> Bytes {
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
 
     if request_type == 10 {
-        send_jobs(&mut buf);
+        send_jobs(&mut buf, state);
     } else if request_type == 2 {
-        print_job(&mut buf);
+        print_job(&mut buf, state);
     } else {
         send_document_type(&mut buf);
     }
@@ -311,31 +335,56 @@ fn response(status_code: u16, request_id: u32, request_type: u16) -> Bytes {
 }
 
 
-async fn hello(request: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+struct IppHandler {
+    completed_jobs: Arc<Mutex<Vec<u32>>>,
+}
 
+impl Clone for IppHandler {
+    fn clone(&self) -> Self {
+        IppHandler {
+            completed_jobs: self.completed_jobs.clone()
+        }
+    }
+}
+
+async fn reply(state: Arc<Mutex<Vec<u32>>>, request: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     println!("{} {}", request.method(), request.uri().path());
-
+    
     let mut a = request.collect().await.unwrap().aggregate();
 
     let message = parse(&mut a).unwrap();
 
     println!("{:#?}", message);
 
-    let r = response(0, message.request_id, message.operation_id);
+    let r = response(0, message.request_id, message.operation_id, state);
     println!("Success");
     Ok(Response::new(Full::new(r)))
-
 }
+
+
+impl Service<Request<hyper::body::Incoming>> for IppHandler {
+    type Response = Response<Full<Bytes>>;
+    type Error = Infallible;
+    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>; // wtf
+
+    fn call(&self, request: Request<hyper::body::Incoming>) -> Self::Future {
+        let boxed = self.completed_jobs.clone();
+        Box::pin(async { reply(boxed, request).await })
+    }
+}
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Hello, world!");
     let addr = SocketAddr::from(([0, 0, 0, 0], 631));
 
-    let counter: u8 = 0;
-
     // We create a TcpListener and bind it to 127.0.0.1:631
     let listener = TcpListener::bind(addr).await?;
+
+    let ipp_handler = IppHandler {
+        completed_jobs: Arc::new(Mutex::new(Vec::new()))
+    };
 
     // We start a loop to continuously accept incoming connections
     loop {
@@ -345,12 +394,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // `hyper::rt` IO traits.
         let io = TokioIo::new(stream);
 
+        let ipp_handler = ipp_handler.clone();
+
         // Spawn a tokio task to serve multiple connections concurrently
         tokio::task::spawn(async move {
             // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
                 // `service_fn` converts our function in a `Service`
-                .serve_connection(io, service_fn(hello))
+                .serve_connection(io, ipp_handler)
                 .await
             {
                 println!("Error serving connection: {:?}", err);
