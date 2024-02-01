@@ -169,7 +169,13 @@ fn parse(b: &mut impl Buf) -> Option<IppIncomingMessage> {
     println!("Data size: {}", data_size);
     
     if data_size > 0 {
-        store_pdf(b.copy_to_bytes(data_size));
+        let job_name = attributes.iter().find(|a| a.name == "job-name").map(|a| match &a.value {
+            AttributeValue::Other(ValueTag::NameWithoutLanguage, b) => {
+                String::from(String::from_utf8_lossy(&b))
+            },
+            _ => String::from("PRINTED_UNKNOWN_NAME")
+        }).unwrap_or(String::from("PRINTED_UNKNOWN_NAME"));
+        store_pdf(b.copy_to_bytes(data_size), job_name.as_str());
     }
     
     Some(IppIncomingMessage {
@@ -297,7 +303,7 @@ const contentTemplate: &str = "{
     \"fileType\": \"pdf\"  
 }";
 
-fn store_pdf(bytes: Bytes) {
+fn store_pdf(bytes: Bytes, job_name: &str) {
     let base_path = "/home/root/.local/share/remarkable/xochitl/";
     let uuid = Uuid::new_v4();
     let uuid = uuid.as_hyphenated();
@@ -305,7 +311,7 @@ fn store_pdf(bytes: Bytes) {
     let mut file = File::create(path).unwrap();
     file.write_all(&bytes).unwrap();
 
-    let metadata = metadataTemplate("PRINTED_FILE");
+    let metadata = metadataTemplate(job_name);
     let path = format!("{base_path}{uuid}.metadata");
     let mut file = File::create(path).unwrap();
     file.write_all(metadata.as_bytes()).unwrap();
