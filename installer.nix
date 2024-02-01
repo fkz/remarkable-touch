@@ -1,11 +1,9 @@
-{ writeScriptBin, nodejs, flip, web-interface, printer }:
+{ writeScriptBin, nodejs, programs }:
+
+let executable = program: if program ? bin then "${program}/${program.bin}" else "${program}"; in
 
 writeScriptBin "install-remarkable-tools" ''
   #!${nodejs}/bin/node
-  const tools = {
-    flip: "${flip}",
-    "web-interface": "${web-interface}",
-    printer: "${printer}/bin/${printer.pname}"
-  };
+  const tools = { ${builtins.concatStringsSep ", " (map (name: ''"${name}": "${executable(programs.${name})}"'') (builtins.attrNames programs)) } };
   require("${./installer/install.js}")(tools);
 ''
