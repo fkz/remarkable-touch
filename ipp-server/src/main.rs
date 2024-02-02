@@ -20,6 +20,9 @@ use uuid::Uuid;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
+
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
@@ -317,17 +320,9 @@ fn store_pdf(bytes: Bytes, job_name: &str) {
         .output().unwrap();
 }
 
-fn print_job(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
-    let job_id = {
-        let mut jobs = state.lock().unwrap();
-        let new_id = jobs.len() + 15;
-        jobs.push(new_id as u32);
-        
-        println!("New Jobs: {:?}", jobs);
-
-        new_id as u32
-    };
-
+async fn print_job(buf: &mut BytesMut, state: JobHandler) {
+    let job_id = state.add_job().await;
+    
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
     sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
@@ -345,8 +340,8 @@ fn validate_job(buf: &mut BytesMut) {
 
 
 
-fn send_jobs(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
-    let jobs = state.lock().unwrap().clone();
+async fn send_jobs(buf: &mut BytesMut, state: JobHandler) {
+    let jobs = state.fetch_jobs().await;
 
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
@@ -358,8 +353,8 @@ fn send_jobs(buf: &mut BytesMut, state: Arc<Mutex<Vec<u32>>>) {
     }
 }
 
-fn send_job(buf: &mut BytesMut, job_id: u32, state: Arc<Mutex<Vec<u32>>>) {
-    let jobs = state.lock().unwrap().clone();
+async fn send_job(buf: &mut BytesMut, job_id: u32, state: JobHandler) {
+    let jobs = state.fetch_jobs().await;
 
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
@@ -390,12 +385,10 @@ fn write_job(job_id: u32, buf: &mut BytesMut) {
     sendAttribute(ValueTag::Enum, "job-state", "\x00\x00\x00\x09", buf);
     sendAttribute(ValueTag::Keyword, "job-state-reasons", "job-completed-successfully", buf);
     sendAttribute(ValueTag::NameWithoutLanguage, "job-name", "com.google.android.apps.photos.Image", buf);
-    sendAttribute(ValueTag::Uri, "printer-uri", "ipp://192.168.0.10/remarkable-printer", buf);
-    
-                
+    sendAttribute(ValueTag::Uri, "printer-uri", "ipp://192.168.0.10/remarkable-printer", buf);                
 }
 
-fn response(status_code: u16, request_id: u32, request_type: u16, job_id: u32, state: Arc<Mutex<Vec<u32>>>) -> Bytes {
+async fn response(status_code: u16, request_id: u32, request_type: u16, job_id: u32, state: JobHandler) -> Bytes {
     let mut buf: BytesMut = BytesMut::new();
 
     buf.put_u8(0x01);
@@ -404,15 +397,15 @@ fn response(status_code: u16, request_id: u32, request_type: u16, job_id: u32, s
     buf.put_u32(request_id);
 
     if request_type == 10 {
-        send_jobs(&mut buf, state);
+        send_jobs(&mut buf, state).await;
     } else if request_type == 2 {
-        print_job(&mut buf, state);
+        print_job(&mut buf, state).await;
     } else if request_type == 11 {
         send_document_type(&mut buf);
     } else if request_type == 4 {
         validate_job(&mut buf);
     } else if request_type == 9 {
-        send_job(&mut buf, job_id, state)
+        send_job(&mut buf, job_id, state).await;
     } else {
         panic!("Unknown request type: {}", request_type)
     }
@@ -423,19 +416,12 @@ fn response(status_code: u16, request_id: u32, request_type: u16, job_id: u32, s
 }
 
 
+#[derive(Clone)]
 struct IppHandler {
-    completed_jobs: Arc<Mutex<Vec<u32>>>,
+    job_handler: JobHandler
 }
 
-impl Clone for IppHandler {
-    fn clone(&self) -> Self {
-        IppHandler {
-            completed_jobs: self.completed_jobs.clone()
-        }
-    }
-}
-
-async fn reply(state: Arc<Mutex<Vec<u32>>>, request: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
+async fn reply(state: JobHandler, request: Request<hyper::body::Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
     println!("{} {}", request.method(), request.uri().path());
     
     let mut a = request.collect().await.unwrap().aggregate();
@@ -451,7 +437,7 @@ async fn reply(state: Arc<Mutex<Vec<u32>>>, request: Request<hyper::body::Incomi
 
     println!("{:#?} {}", message, job_id);
 
-    let r = response(0, message.request_id, message.operation_id, job_id, state);
+    let r = response(0, message.request_id, message.operation_id, job_id, state).await;
     println!("Success: {:?}", r.to_vec());
     Ok(Response::new(Full::new(r)))
 }
@@ -463,23 +449,67 @@ impl Service<Request<hyper::body::Incoming>> for IppHandler {
     type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>; // wtf
 
     fn call(&self, request: Request<hyper::body::Incoming>) -> Self::Future {
-        let boxed = self.completed_jobs.clone();
-        Box::pin(async { reply(boxed, request).await })
+        let job_handler = self.job_handler.clone();
+        Box::pin(async { reply(job_handler, request).await })
+    }
+}
+
+#[derive(Clone)]
+struct JobHandler {
+    add_job: mpsc::Sender<oneshot::Sender<u32>>,
+    fetch_jobs: mpsc::Sender<oneshot::Sender<Vec<u32>>>
+}
+
+impl JobHandler {
+    async fn add_job(&self) -> u32 {
+        let (sender, receiver) = oneshot::channel();
+        self.add_job.send(sender).await.unwrap();
+        receiver.await.unwrap()
+    }
+    async fn fetch_jobs(&self) -> Vec<u32> {
+        let (sender, receiver) = oneshot::channel();
+        self.fetch_jobs.send(sender).await.unwrap();
+        receiver.await.unwrap()
     }
 }
 
 
+async fn handle_jobs(mut add_job_rx: mpsc::Receiver<oneshot::Sender<u32>>, mut fetch_jobs_rx: mpsc::Receiver<oneshot::Sender<Vec<u32>>>) {
+    let mut jobs = Vec::new();
+ 
+    loop {
+        tokio::select! {
+            Some(add_job) = add_job_rx.recv() => {
+                let job_id = jobs.len() as u32 + 17;
+                jobs.push(job_id);
+                add_job.send(job_id).unwrap();
+            }
+            Some(fetch_jobs) = fetch_jobs_rx.recv() => {
+                fetch_jobs.send(jobs.clone()).unwrap();
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("Hello, world!");
+    println!("IPP Server");
     let addr = SocketAddr::from(([0, 0, 0, 0], 631));
 
     // We create a TcpListener and bind it to 127.0.0.1:631
     let listener = TcpListener::bind(addr).await?;
 
+    let (add_job_tx, mut add_job_rx) = mpsc::channel(1);
+    let (fetch_jobs_tx, mut fetch_jobs_rx) = mpsc::channel(1);
+
     let ipp_handler = IppHandler {
-        completed_jobs: Arc::new(Mutex::new(Vec::new()))
+        job_handler: JobHandler {
+            add_job: add_job_tx,
+            fetch_jobs: fetch_jobs_tx
+        }
     };
+
+    tokio::task::spawn(handle_jobs(add_job_rx, fetch_jobs_rx));
 
     // We start a loop to continuously accept incoming connections
     loop {
