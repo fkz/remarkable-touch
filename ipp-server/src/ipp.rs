@@ -3,7 +3,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum DelimiterTag {
     OperationAttributes = 0x01,
     JobAttributes = 0x02,
@@ -121,8 +121,8 @@ struct Attribute {
 
 #[derive(Debug)]
 pub struct IncomingMessage {
-    version_major: u8,
-    version_minor: u8,
+    pub version_major: u8,
+    pub version_minor: u8,
     pub operation_id: u16,
     pub request_id: u32,
     attributes: Vec<Attribute>
@@ -137,6 +137,15 @@ impl IncomingMessage {
         }
         None
     }
+
+    pub fn get_delimited_attribute(&self, kind: DelimiterTag, name: &str) -> Option<&AttributeValue> {
+        for attr in &self.attributes {
+            if attr.kind == kind && attr.name == name {
+                return Some(&attr.value);
+            }
+        }
+        None
+    }
 }
 
 pub fn parse(b: &mut impl Buf) -> Option<IncomingMessage> {
@@ -144,7 +153,6 @@ pub fn parse(b: &mut impl Buf) -> Option<IncomingMessage> {
     let version_minor = b.get_u8();
     let operation_id = b.get_u16();
     let request_id = b.get_u32();
-    println!("Version: {}.{} Operation: {}", version_major, version_minor, operation_id);
     
     let attributes = parse_attributes(b);
     

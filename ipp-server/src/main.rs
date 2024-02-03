@@ -1,6 +1,5 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::fs::File;
 
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
@@ -10,18 +9,12 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use std::process::Command;
-
-
-use std::io::Write;
-use uuid::Uuid;
-
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 mod ipp;
+mod store_pdf;
 
 
 
@@ -53,54 +46,6 @@ fn send_document_type(buf: &mut BytesMut) {
     ipp::send_attribute(ipp::ValueTag::Enum, "", "\x00\x00\x00\x0a", buf);
     ipp::send_attribute(ipp::ValueTag::Enum, "", "\x00\x00\x00\x0b", buf);
     
-}
-
-fn metadata_template(visible_name: &str) -> String {
-    let start = SystemTime::now();
-    let since_the_epoch = start
-        .duration_since(UNIX_EPOCH).unwrap();
-    let milliseconds = since_the_epoch.as_millis();
-
-    format!("{{
-        \"deleted\": false,
-        \"lastModified\": \"{milliseconds}\",
-        \"lastOpened\": \"0\",
-        \"lastOpenedPage\": 0,
-        \"metadatamodified\": true,
-        \"modified\": true,
-        \"parent\": \"\",
-        \"pinned\": false,
-        \"synced\": false,
-        \"type\": \"DocumentType\",
-        \"version\": 0,
-        \"visibleName\": \"{visible_name}\"
-    }}")
-}
-
-const CONTENT_TEMPLATE: &str = "{
-    \"fileType\": \"pdf\"  
-}";
-
-fn store_pdf(bytes: Bytes, job_name: &str) {
-    let base_path = "/home/root/.local/share/remarkable/xochitl/";
-    let uuid = Uuid::new_v4();
-    let uuid = uuid.as_hyphenated();
-    let path = format!("{base_path}{uuid}.pdf");
-    let mut file = File::create(path).unwrap();
-    file.write_all(&bytes).unwrap();
-
-    let metadata = metadata_template(job_name);
-    let path = format!("{base_path}{uuid}.metadata");
-    let mut file = File::create(path).unwrap();
-    file.write_all(metadata.as_bytes()).unwrap();
-
-    let path = format!("{base_path}{uuid}.content");
-    let mut file = File::create(path).unwrap();
-    file.write_all(CONTENT_TEMPLATE.as_bytes()).unwrap();
-
-    Command::new("systemctl")
-        .args(["restart", "xochitl"])
-        .output().unwrap();
 }
 
 async fn print_job(buf: &mut BytesMut, state: JobHandler) {
@@ -221,7 +166,7 @@ async fn reply(state: JobHandler, request: Request<hyper::body::Incoming>) -> Re
             },
             _ => String::from("PRINTED_UNKNOWN_NAME")
         }).unwrap_or(String::from("PRINTED_UNKNOWN_NAME"));
-        store_pdf(a.copy_to_bytes(data_size), job_name.as_str());
+        store_pdf::store_pdf(a.copy_to_bytes(data_size), job_name.as_str());
     }
     
     let job_id = message.get_attribute("job-id").map(|a| match a {
