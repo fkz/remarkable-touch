@@ -166,7 +166,7 @@ async fn reply(state: JobHandler, request: Request<hyper::body::Incoming>) -> Re
             },
             _ => String::from("PRINTED_UNKNOWN_NAME")
         }).unwrap_or(String::from("PRINTED_UNKNOWN_NAME"));
-        store_pdf::store_pdf(a.copy_to_bytes(data_size), job_name.as_str());
+        store_pdf::store_pdf(a.copy_to_bytes(data_size), job_name.as_str()).await;
     }
     
     let job_id = message.get_attribute("job-id").map(|a| match a {
