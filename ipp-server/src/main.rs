@@ -1,8 +1,6 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::fs::File;
-use std::sync::{Arc, Mutex};
-
 
 use http_body_util::{BodyExt, Full};
 use hyper::server::conn::http1;
@@ -158,7 +156,7 @@ fn parse(b: &mut impl Buf) -> Option<IppIncomingMessage> {
     let request_id = b.get_u32();
     println!("Version: {}.{} Operation: {}", version_major, version_minor, operation_id);
     
-    let attributes = parseAttributes(b);
+    let attributes = parse_attributes(b);
 
     let data_size = b.remaining();
     println!("Data size: {}", data_size);
@@ -183,10 +181,10 @@ fn parse(b: &mut impl Buf) -> Option<IppIncomingMessage> {
 }
 
 
-fn parseAttributes(b: &mut impl Buf) -> Vec<Attribute> {
+fn parse_attributes(b: &mut impl Buf) -> Vec<Attribute> {
     let mut delimiter = DelimiterTag::EndOfAttributes;
     let mut result = Vec::new();
-    let mut currentAttribute: Option<Attribute> = None;
+    let mut current_attribute: Option<Attribute> = None;
     loop {
         let tag = b.get_u8();
         match DelimiterTag::parse_tag(tag) {
@@ -207,27 +205,27 @@ fn parseAttributes(b: &mut impl Buf) -> Vec<Attribute> {
         let value = b.copy_to_bytes(value_length as usize);
 
         if name_length == 0 {
-            let mut newAttributes = currentAttribute.unwrap();
-            newAttributes = Attribute {
-                value: newAttributes.value.parse_next(&value),
-                ..newAttributes
+            let mut new_attributes = current_attribute.unwrap();
+            new_attributes = Attribute {
+                value: new_attributes.value.parse_next(&value),
+                ..new_attributes
             };
-            currentAttribute = Some(newAttributes);
+            current_attribute = Some(new_attributes);
         } else {
-            let mut attribute = Attribute {
+            let attribute = Attribute {
                 kind: delimiter,
                 name: String::from(String::from_utf8_lossy(&name)),
                 value: AttributeValue::parse(tag.unwrap(), &value)
             };
-            if let Some(attr) = currentAttribute { result.push(attr) };
-            currentAttribute = Some(attribute);
+            if let Some(attr) = current_attribute { result.push(attr) };
+            current_attribute = Some(attribute);
         }
     }
-    if let Some(attr) = currentAttribute { result.push(attr) };
+    if let Some(attr) = current_attribute { result.push(attr) };
     result
 }
 
-fn sendAttribute(tpe: ValueTag, name: &str, value: &str, buf: &mut BytesMut) {
+fn send_attribute(tpe: ValueTag, name: &str, value: &str, buf: &mut BytesMut) {
     buf.put_u8(tpe as u8);
 
     let name = name.as_bytes();
@@ -245,34 +243,34 @@ fn sendAttribute(tpe: ValueTag, name: &str, value: &str, buf: &mut BytesMut) {
 fn send_document_type(buf: &mut BytesMut) {
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
-    sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
-    sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
+    send_attribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
+    send_attribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
 
     buf.put_u8(DelimiterTag::PrinterAttributes as u8);    
-    sendAttribute(ValueTag::MimeMediaType, "document-format-supported", "application/pdf", buf);
-    sendAttribute(ValueTag::MimeMediaType, "", "application/postscript", buf);
+    send_attribute(ValueTag::MimeMediaType, "document-format-supported", "application/pdf", buf);
+    send_attribute(ValueTag::MimeMediaType, "", "application/postscript", buf);
 
-    sendAttribute(ValueTag::Keyword, "ipp-versions-supported", "1.1", buf);
+    send_attribute(ValueTag::Keyword, "ipp-versions-supported", "1.1", buf);
     
-    sendAttribute(ValueTag::MimeMediaType, "document-format-default", "application/pdf", buf);
-    sendAttribute(ValueTag::Keyword, "compression-supported", "none", buf);
-    sendAttribute(ValueTag::Boolean, "printer-is-accepting-jobs", "\x01", buf);
-    sendAttribute(ValueTag::Enum, "printer-state", "\x00\x00\x00\x03", buf);
-    sendAttribute(ValueTag::Keyword, "printer-state-reasons", "none", buf);
+    send_attribute(ValueTag::MimeMediaType, "document-format-default", "application/pdf", buf);
+    send_attribute(ValueTag::Keyword, "compression-supported", "none", buf);
+    send_attribute(ValueTag::Boolean, "printer-is-accepting-jobs", "\x01", buf);
+    send_attribute(ValueTag::Enum, "printer-state", "\x00\x00\x00\x03", buf);
+    send_attribute(ValueTag::Keyword, "printer-state-reasons", "none", buf);
     
-    sendAttribute(ValueTag::Uri, "printer-uri-supported", "ipp://192.168.0.10/remarkable-printer", buf);
-    sendAttribute(ValueTag::NameWithoutLanguage, "printer-name", "remarkable-test-printer", buf);
-    sendAttribute(ValueTag::Keyword, "uri-authentication-supported", "none", buf);
-    sendAttribute(ValueTag::Keyword, "uri-security-supported", "none", buf);
+    send_attribute(ValueTag::Uri, "printer-uri-supported", "ipp://192.168.0.10/remarkable-printer", buf);
+    send_attribute(ValueTag::NameWithoutLanguage, "printer-name", "remarkable-test-printer", buf);
+    send_attribute(ValueTag::Keyword, "uri-authentication-supported", "none", buf);
+    send_attribute(ValueTag::Keyword, "uri-security-supported", "none", buf);
     
-    sendAttribute(ValueTag::Enum, "operations-supported", "\x00\x00\x00\x02", buf);
-    sendAttribute(ValueTag::Enum, "", "\x00\x00\x00\x04", buf);
-    sendAttribute(ValueTag::Enum, "", "\x00\x00\x00\x0a", buf);
-    sendAttribute(ValueTag::Enum, "", "\x00\x00\x00\x0b", buf);
+    send_attribute(ValueTag::Enum, "operations-supported", "\x00\x00\x00\x02", buf);
+    send_attribute(ValueTag::Enum, "", "\x00\x00\x00\x04", buf);
+    send_attribute(ValueTag::Enum, "", "\x00\x00\x00\x0a", buf);
+    send_attribute(ValueTag::Enum, "", "\x00\x00\x00\x0b", buf);
     
 }
 
-fn metadataTemplate(visibleName: &str) -> String {
+fn metadata_template(visible_name: &str) -> String {
     let start = SystemTime::now();
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH).unwrap();
@@ -290,11 +288,11 @@ fn metadataTemplate(visibleName: &str) -> String {
         \"synced\": false,
         \"type\": \"DocumentType\",
         \"version\": 0,
-        \"visibleName\": \"{visibleName}\"
+        \"visibleName\": \"{visible_name}\"
     }}")
 }
 
-const contentTemplate: &str = "{
+const CONTENT_TEMPLATE: &str = "{
     \"fileType\": \"pdf\"  
 }";
 
@@ -306,14 +304,14 @@ fn store_pdf(bytes: Bytes, job_name: &str) {
     let mut file = File::create(path).unwrap();
     file.write_all(&bytes).unwrap();
 
-    let metadata = metadataTemplate(job_name);
+    let metadata = metadata_template(job_name);
     let path = format!("{base_path}{uuid}.metadata");
     let mut file = File::create(path).unwrap();
     file.write_all(metadata.as_bytes()).unwrap();
 
     let path = format!("{base_path}{uuid}.content");
     let mut file = File::create(path).unwrap();
-    file.write_all(contentTemplate.as_bytes()).unwrap();
+    file.write_all(CONTENT_TEMPLATE.as_bytes()).unwrap();
 
     Command::new("systemctl")
         .args(["restart", "xochitl"])
@@ -325,8 +323,8 @@ async fn print_job(buf: &mut BytesMut, state: JobHandler) {
     
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
-    sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
-    sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
+    send_attribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
+    send_attribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
 
     write_job(job_id, buf);
 }
@@ -334,8 +332,8 @@ async fn print_job(buf: &mut BytesMut, state: JobHandler) {
 fn validate_job(buf: &mut BytesMut) {
     buf.put_u8(DelimiterTag::OperationAttributes as u8);
     
-    sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
-    sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
+    send_attribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
+    send_attribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
 }
 
 
@@ -375,17 +373,17 @@ fn write_job(job_id: u32, buf: &mut BytesMut) {
     job_uri.push_str(job_id.to_string().as_str());
 
     buf.put_u8(DelimiterTag::JobAttributes as u8);
-    sendAttribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
-    sendAttribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
-    sendAttribute(ValueTag::Integer, "job-id", job_id.as_str(), buf);
+    send_attribute(ValueTag::Charset, "attributes-charset", "utf-8", buf);
+    send_attribute(ValueTag::NaturalLanguage, "attributes-natural-language", "en-us", buf);
+    send_attribute(ValueTag::Integer, "job-id", job_id.as_str(), buf);
     
-    sendAttribute(ValueTag::Uri, "job-uri", job_uri.as_str(), buf);
+    send_attribute(ValueTag::Uri, "job-uri", job_uri.as_str(), buf);
     
 
-    sendAttribute(ValueTag::Enum, "job-state", "\x00\x00\x00\x09", buf);
-    sendAttribute(ValueTag::Keyword, "job-state-reasons", "job-completed-successfully", buf);
-    sendAttribute(ValueTag::NameWithoutLanguage, "job-name", "com.google.android.apps.photos.Image", buf);
-    sendAttribute(ValueTag::Uri, "printer-uri", "ipp://192.168.0.10/remarkable-printer", buf);                
+    send_attribute(ValueTag::Enum, "job-state", "\x00\x00\x00\x09", buf);
+    send_attribute(ValueTag::Keyword, "job-state-reasons", "job-completed-successfully", buf);
+    send_attribute(ValueTag::NameWithoutLanguage, "job-name", "com.google.android.apps.photos.Image", buf);
+    send_attribute(ValueTag::Uri, "printer-uri", "ipp://192.168.0.10/remarkable-printer", buf);                
 }
 
 async fn response(status_code: u16, request_id: u32, request_type: u16, job_id: u32, state: JobHandler) -> Bytes {
@@ -499,8 +497,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // We create a TcpListener and bind it to 127.0.0.1:631
     let listener = TcpListener::bind(addr).await?;
 
-    let (add_job_tx, mut add_job_rx) = mpsc::channel(1);
-    let (fetch_jobs_tx, mut fetch_jobs_rx) = mpsc::channel(1);
+    let (add_job_tx, add_job_rx) = mpsc::channel(1);
+    let (fetch_jobs_tx, fetch_jobs_rx) = mpsc::channel(1);
 
     let ipp_handler = IppHandler {
         job_handler: JobHandler {
