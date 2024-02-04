@@ -69,7 +69,15 @@ module.exports = async (programs) => {
   if (command === "list") {
     console.log("The following tools are available:");
     for (const name in programs) {
-      const size = (await fs.stat(programs[name])).size;
+      let size = (await fs.stat(programs[name])).size;
+      // generate human readable size
+      const sizeUnits = ["B", "KB", "MB", "GB"];
+      let unitIndex = 0;
+      while (size > 1024 && unitIndex < sizeUnits.length) {
+        size /= 1024;
+        unitIndex++;
+      }
+      size = size.toFixed(2) + sizeUnits[unitIndex];
       console.log("   " + name + "  (" + size + ")");
     }
     return;

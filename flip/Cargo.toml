@@ -1,0 +1,10 @@
+[package]
+name = "flip"
+version = "0.0.1"
+edition = "2021"
+description = "Allow page flips by pressing in the bottom left and right corners"
+
+
+[dependencies]
+input-linux-sys = "0.8.0"
+libc = "0.2.153"
