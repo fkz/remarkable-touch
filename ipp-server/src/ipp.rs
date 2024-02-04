@@ -147,7 +147,6 @@ fn parse_attributes(b: &mut impl Buf) -> Vec<Attribute> {
     let mut result = Vec::new();
     let mut current_attribute: Option<Attribute> = None;
     loop {
-        unsafe { asm!("int3"); };
         let tag = b.get_u8();
         match DelimiterTag::parse_tag(tag) {
             Some(DelimiterTag::EndOfAttributes) => {

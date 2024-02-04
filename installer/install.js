@@ -1,4 +1,5 @@
 const path = require('node:path');
+const fs = require('node:fs').promises;
 
 const spawnWithoutPromise = require('node:child_process').spawn;
 
@@ -68,7 +69,8 @@ module.exports = async (programs) => {
   if (command === "list") {
     console.log("The following tools are available:");
     for (const name in programs) {
-      console.log("   " + name);
+      const size = (await fs.stat(programs[name])).size;
+      console.log("   " + name + "  (" + size + ")");
     }
     return;
   }
