@@ -1,9 +1,11 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-
+use num_derive::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;  
+use core::arch::asm;  
 
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, FromPrimitive, ToPrimitive)]
 pub enum DelimiterTag {
     OperationAttributes = 0x01,
     JobAttributes = 0x02,
@@ -12,8 +14,7 @@ pub enum DelimiterTag {
     UnsupportedAttributes = 0x05,
 }
 
-#[derive(Debug)] 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq, FromPrimitive)]
 #[repr(u8)]
 pub enum ValueTag {
     Integer = 0x21,
@@ -39,40 +40,15 @@ pub enum ValueTag {
 
 impl DelimiterTag {
     fn parse_tag(tag: u8) -> Option<Self> {
-        match tag {
-            0x01 => Some(DelimiterTag::OperationAttributes),
-            0x02 => Some(DelimiterTag::JobAttributes),
-            0x03 => Some(DelimiterTag::EndOfAttributes),
-            0x04 => Some(DelimiterTag::PrinterAttributes),
-            0x05 => Some(DelimiterTag::UnsupportedAttributes),
-            _ => None,
-        }
+        DelimiterTag::from_u8(tag)
     }
 }
 
 impl ValueTag {
     fn parse_tag(tag: u8) -> Option<Self> {
-        match tag {
-            0x21 => Some(ValueTag::Integer),
-            0x22 => Some(ValueTag::Boolean),
-            0x23 => Some(ValueTag::Enum),
-            0x30 => Some(ValueTag::OctetString),
-            0x31 => Some(ValueTag::DateTime),
-            0x32 => Some(ValueTag::Resolution),
-            0x33 => Some(ValueTag::RangeOfInteger),
-            0x34 => Some(ValueTag::BegCollection),
-            0x35 => Some(ValueTag::TextWithLanguage),
-            0x36 => Some(ValueTag::NameWithLanguage),
-            0x37 => Some(ValueTag::EndCollection),
-            0x42 => Some(ValueTag::NameWithoutLanguage),
-            0x44 => Some(ValueTag::Keyword),
-            0x45 => Some(ValueTag::Uri),
-            0x46 => Some(ValueTag::UriSchema),
-            0x47 => Some(ValueTag::Charset),
-            0x48 => Some(ValueTag::NaturalLanguage),
-            0x49 => Some(ValueTag::MimeMediaType),
-            other => { println!("Encountered unknown tag {}", other); None },
-        }
+        let result = ValueTag::from_u8(tag);
+        if let None = result { println!("Encountered unknown tag {}", tag); };
+        result
     }
 }
 
@@ -171,6 +147,7 @@ fn parse_attributes(b: &mut impl Buf) -> Vec<Attribute> {
     let mut result = Vec::new();
     let mut current_attribute: Option<Attribute> = None;
     loop {
+        unsafe { asm!("int3"); };
         let tag = b.get_u8();
         match DelimiterTag::parse_tag(tag) {
             Some(DelimiterTag::EndOfAttributes) => {

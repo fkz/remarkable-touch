@@ -12,3 +12,9 @@ http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["full"] }
 bytes = "1.5"
 uuid = { version = "1.7.0", features = ["v4"] }
+num-traits = "0.2"
+num-derive = "0.4"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
